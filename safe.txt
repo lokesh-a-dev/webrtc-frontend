@@ -213,3 +213,144 @@ function endCall() {
 
 </body>
 </html>
+
+
+
+------------------
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebRTC Mobile Call</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background: black;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+      color: white;
+    }
+
+    /* Remote video = full screen */
+    #remoteVideo {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: black;
+    }
+
+    /* Local preview floating */
+    #localVideo {
+      position: absolute;
+      width: 120px;
+      height: 160px;
+      bottom: 110px;
+      right: 15px;
+      border-radius: 12px;
+      object-fit: cover;
+      border: 2px solid white;
+      background: black;
+    }
+
+    /* Top room section */
+    .top-bar {
+      position: absolute;
+      top: 20px;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 15px;
+      z-index: 10;
+    }
+
+    input {
+      flex: 1;
+      padding: 10px;
+      border-radius: 25px;
+      border: none;
+      outline: none;
+      font-size: 14px;
+    }
+
+    .join-btn {
+      padding: 10px 16px;
+      border-radius: 25px;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+    }
+
+    /* Bottom control bar */
+    .controls {
+      position: absolute;
+      bottom: 30px;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      gap: 25px;
+      z-index: 10;
+    }
+
+    .control-btn {
+      width: 65px;
+      height: 65px;
+      border-radius: 50%;
+      border: none;
+      font-size: 18px;
+      font-weight: bold;
+      color: white;
+    }
+
+    .start-btn {
+      background: #22c55e;
+    }
+
+    .end-btn {
+      background: #ef4444;
+    }
+
+    .status {
+      position: absolute;
+      bottom: 5px;
+      width: 100%;
+      text-align: center;
+      font-size: 13px;
+      opacity: 0.8;
+    }
+
+  </style>
+</head>
+
+<body>
+
+  <!-- Remote video full screen -->
+  <video id="remoteVideo" autoplay playsinline></video>
+
+  <!-- Local preview floating -->
+  <video id="localVideo" autoplay muted playsinline></video>
+
+  <!-- Top join bar -->
+  <div class="top-bar">
+    <input id="roomInput" placeholder="Room ID">
+    <button class="join-btn" onclick="joinRoom()">Join</button>
+  </div>
+
+  <!-- Bottom controls -->
+  <div class="controls">
+    <button class="control-btn start-btn" onclick="startCall()">▶</button>
+    <button class="control-btn end-btn" onclick="endCall()">✕</button>
+  </div>
+
+  <div class="status" id="status">Status: Not Connected</div>
