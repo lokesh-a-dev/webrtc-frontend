@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebRTC 1-to-1 Call</title>
+  <style>
+    body {
+      font-family: Arial;
+      text-align: center;
+      background: #f4f6f8;
+      padding: 20px;
+    }
+
+    video {
+      width: 45%;
+      max-width: 400px;
+      background: black;
+      margin: 10px;
+      border-radius: 10px;
+    }
+
+    button, input {
+      padding: 8px 12px;
+      margin: 5px;
+    }
+
+    #status {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<h2>1-to-1 WebRTC Call</h2>
+
+<input id="roomInput" placeholder="Enter Room ID" />
+<button onclick="joinRoom()">Join Room</button>
+
+<div>
+  <video id="localVideo" autoplay muted playsinline></video>
+  <video id="remoteVideo" autoplay playsinline></video>
+</div>
+
+<div>
+  <button onclick="startCall()">Start Call</button>
+  <button onclick="endCall()">End Call</button>
+</div>
+
+<div id="status">Status: Not Connected</div>
+
+<script>
+let pc = null;
+let localStream = null;
+let roomId = null;
+
+const socket = new WebSocket("wss://signalling-server-vyew.onrender.com");
+
+function joinRoom() {
+  roomId = document.getElementById("roomInput").value;
+  if (!roomId) return;
+
+  socket.send(JSON.stringify({
+    type: "join",
+    room: roomId
+  }));
+
+  document.getElementById("status").innerText =
+    "Joined Room: " + roomId;
+}
+
+function createPeer() {
+
+// pc = new RTCPeerConnection({
+//   iceServers: [
+//     { urls: "stun:stun.l.google.com:19302" },
+//     {
+//       urls: [
+//         "turn:openrelay.metered.ca:80",
+//         "turn:openrelay.metered.ca:443",
+//         "turn:openrelay.metered.ca:443?transport=tcp"
+//       ],
+//       username: "openrelayproject",
+//       credential: "openrelayproject"
+//     }
+//   ]
+// });
+pc = new RTCPeerConnection({
+  iceTransportPolicy: "all",
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80?transport=udp",
+        "turn:openrelay.metered.ca:443?transport=tcp"
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    }
+  ]
+});
+
+  pc.ontrack = (event) => {
+    document.getElementById("remoteVideo").srcObject =
+      event.streams[0];
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.send(JSON.stringify({
+        type: "candidate",
+        candidate: event.candidate
+      }));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    document.getElementById("status").innerText =
+      "Connection: " + pc.connectionState;
+  };
+}
+
+async function startCall() {
+  if (!roomId) {
+    alert("Join a room first");
+    return;
+  }
+
+  if (pc) return;
+
+  localStream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: true
+  });
+
+  document.getElementById("localVideo").srcObject = localStream;
+
+  createPeer();
+
+  localStream.getTracks().forEach(track => {
+    pc.addTrack(track, localStream);
+  });
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  socket.send(JSON.stringify({
+    type: "offer",
+    offer: offer
+  }));
+}
+
+socket.onmessage = async (message) => {
+  const data = JSON.parse(message.data);
+
+  if (!pc && data.type === "offer") {
+    createPeer();
+
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true
+    });
+
+    document.getElementById("localVideo").srcObject = localStream;
+
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+    });
+  }
+
+  if (data.type === "offer") {
+    await pc.setRemoteDescription(data.offer);
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    socket.send(JSON.stringify({
+      type: "answer",
+      answer: answer
+    }));
+  }
+
+  if (data.type === "answer") {
+    await pc.setRemoteDescription(data.answer);
+  }
+
+  if (data.type === "candidate") {
+    await pc.addIceCandidate(data.candidate);
+  }
+};
+
+
+function endCall() {
+  if (pc) {
+    pc.ontrack = null;
+    pc.onicecandidate = null;
+    pc.onconnectionstatechange = null;
+
+    pc.close();
+    pc = null;
+  }
+
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+
+  document.getElementById("localVideo").srcObject = null;
+  document.getElementById("remoteVideo").srcObject = null;
+
+  document.getElementById("status").innerText = "Status: Idle";
+}
+</script>
+
+</body>
+</html>

@@ -49,70 +49,95 @@
 <div id="status">Status: Not Connected</div>
 
 <script>
+
 let pc = null;
 let localStream = null;
 let roomId = null;
+let socket = null;
+let messageQueue = [];
+let isSocketReady = false;
 
-const socket = new WebSocket("wss://signalling-server-vyew.onrender.com");
+initWebSocket();
+
+/* ===========================
+   WebSocket Layer
+=========================== */
+
+function initWebSocket() {
+
+  socket = new WebSocket("wss://signalling-server-vyew.onrender.com");
+
+  socket.onopen = () => {
+    console.log("WebSocket Connected");
+    isSocketReady = true;
+
+    // Flush queued messages
+    while (messageQueue.length > 0) {
+      socket.send(messageQueue.shift());
+    }
+  };
+
+  socket.onclose = () => {
+    console.log("WebSocket Disconnected. Reconnecting...");
+    isSocketReady = false;
+
+    setTimeout(initWebSocket, 3000); // auto-reconnect
+  };
+
+  socket.onerror = (err) => {
+    console.error("WebSocket error:", err);
+  };
+
+  socket.onmessage = handleSignalingMessage;
+}
+
+function sendMessage(data) {
+  const msg = JSON.stringify(data);
+
+  if (isSocketReady && socket.readyState === WebSocket.OPEN) {
+    socket.send(msg);
+  } else {
+    messageQueue.push(msg);
+  }
+}
+
+/* ===========================
+   Room Join
+=========================== */
 
 function joinRoom() {
   roomId = document.getElementById("roomInput").value;
   if (!roomId) return;
 
-  socket.send(JSON.stringify({
+  sendMessage({
     type: "join",
     room: roomId
-  }));
+  });
 
   document.getElementById("status").innerText =
     "Joined Room: " + roomId;
 }
 
-function createPeer() {
-  // pc = new RTCPeerConnection({
-  //   iceServers: [
-  //     { urls: "stun:stun.l.google.com:19302" }
-  //   ]
-  // });
+/* ===========================
+   Peer Connection
+=========================== */
 
-//   pc = new RTCPeerConnection({
-//   iceServers: [
-//     { urls: "stun:stun.l.google.com:19302" },
-//     {
-//       urls: "turn:openrelay.metered.ca:80",
-//       username: "openrelayproject",
-//       credential: "openrelayproject"
-//     }
-//   ]
-// });
-// pc = new RTCPeerConnection({
-//   iceServers: [
-//     { urls: "stun:stun.l.google.com:19302" },
-//     {
-//       urls: [
-//         "turn:openrelay.metered.ca:80",
-//         "turn:openrelay.metered.ca:443",
-//         "turn:openrelay.metered.ca:443?transport=tcp"
-//       ],
-//       username: "openrelayproject",
-//       credential: "openrelayproject"
-//     }
-//   ]
-// });
-pc = new RTCPeerConnection({
-  iceTransportPolicy: "all",
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    {
-      urls: [
-        "turn:openrelay.metered.ca:80?transport=udp",
-        "turn:openrelay.metered.ca:443?transport=tcp"
-      ],
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    }
-  ]
-});
+function createPeer() {
+
+  pc = new RTCPeerConnection({
+    iceTransportPolicy: "all",
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      {
+        urls: [
+          "turn:openrelay.metered.ca:80?transport=udp",
+          "turn:openrelay.metered.ca:443?transport=tcp"
+        ],
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      }
+    ]
+  });
 
   pc.ontrack = (event) => {
     document.getElementById("remoteVideo").srcObject =
@@ -121,10 +146,10 @@ pc = new RTCPeerConnection({
 
   pc.onicecandidate = (event) => {
     if (event.candidate) {
-      socket.send(JSON.stringify({
+      sendMessage({
         type: "candidate",
         candidate: event.candidate
-      }));
+      });
     }
   };
 
@@ -134,7 +159,12 @@ pc = new RTCPeerConnection({
   };
 }
 
+/* ===========================
+   Start Call
+=========================== */
+
 async function startCall() {
+
   if (!roomId) {
     alert("Join a room first");
     return;
@@ -142,32 +172,44 @@ async function startCall() {
 
   if (pc) return;
 
-  localStream = await navigator.mediaDevices.getUserMedia({
-    video: true,
-    audio: true
-  });
+  try {
 
-  document.getElementById("localVideo").srcObject = localStream;
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true
+    });
 
-  createPeer();
+    document.getElementById("localVideo").srcObject = localStream;
 
-  localStream.getTracks().forEach(track => {
-    pc.addTrack(track, localStream);
-  });
+    createPeer();
 
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+    });
 
-  socket.send(JSON.stringify({
-    type: "offer",
-    offer: offer
-  }));
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    sendMessage({
+      type: "offer",
+      offer: offer
+    });
+
+  } catch (err) {
+    console.error("Error starting call:", err);
+  }
 }
 
-socket.onmessage = async (message) => {
+/* ===========================
+   Signaling Handler
+=========================== */
+
+async function handleSignalingMessage(message) {
+
   const data = JSON.parse(message.data);
 
   if (!pc && data.type === "offer") {
+
     createPeer();
 
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -182,50 +224,43 @@ socket.onmessage = async (message) => {
     });
   }
 
-  if (data.type === "offer") {
-    await pc.setRemoteDescription(data.offer);
+  try {
 
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    if (data.type === "offer") {
 
-    socket.send(JSON.stringify({
-      type: "answer",
-      answer: answer
-    }));
+      await pc.setRemoteDescription(data.offer);
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      sendMessage({
+        type: "answer",
+        answer: answer
+      });
+    }
+
+    if (data.type === "answer") {
+      await pc.setRemoteDescription(data.answer);
+    }
+
+    if (data.type === "candidate") {
+      if (pc.remoteDescription) {
+        await pc.addIceCandidate(data.candidate);
+      }
+    }
+
+  } catch (err) {
+    console.error("Signaling error:", err);
   }
+}
 
-  if (data.type === "answer") {
-    await pc.setRemoteDescription(data.answer);
-  }
-
-  if (data.type === "candidate") {
-    await pc.addIceCandidate(data.candidate);
-  }
-};
-
-// function endCall() {
-//   if (pc) {
-//     pc.close();
-//     pc = null;
-//   }
-
-//   if (localStream) {
-//     localStream.getTracks().forEach(track => track.stop());
-//     localStream = null;
-//   }
-
-//   document.getElementById("localVideo").srcObject = null;
-//   document.getElementById("remoteVideo").srcObject = null;
-//   document.getElementById("status").innerText =
-//     "Status: Call Ended";
-// }
+/* ===========================
+   End Call
+=========================== */
 
 function endCall() {
-  if (pc) {
-    pc.ontrack = null;
-    pc.onicecandidate = null;
-    pc.onconnectionstatechange = null;
 
+  if (pc) {
     pc.close();
     pc = null;
   }
@@ -240,6 +275,7 @@ function endCall() {
 
   document.getElementById("status").innerText = "Status: Idle";
 }
+
 </script>
 
 </body>
