@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Advanced WebRTC</title>
+  <style>
+    body { font-family: Arial; text-align: center; background: #f2f2f2; }
+    video { width: 45%; margin: 10px; background: black; border-radius: 10px; }
+    .controls button { margin: 5px; padding: 10px 15px; }
+    #chatBox { width: 90%; height: 120px; margin-top: 10px; }
+    #chatInput { width: 70%; padding: 8px; }
+  </style>
+</head>
+<body>
+
+<h2>WebRTC Video Call</h2>
+
+<div>
+  <video id="localVideo" autoplay muted playsinline></video>
+  <video id="remoteVideo" autoplay playsinline></video>
+</div>
+
+<div class="controls">
+  <button onclick="startCall()">Start Call</button>
+  <button onclick="toggleMute()">Mute</button>
+  <button onclick="toggleCamera()">Camera Off</button>
+  <button onclick="endCall()">End Call</button>
+</div>
+
+<hr>
+
+<h3>Chat</h3>
+<textarea id="chatBox" readonly></textarea><br>
+<input id="chatInput" placeholder="Type message..." />
+<button onclick="sendMessage()">Send</button>
+
+<script>
+let pc;
+let localStream;
+let dataChannel;
+// const socket = new WebSocket("ws://localhost:8080");
+const socket = new WebSocket("https://signalling-server-vyew.onrender.com");
+
+
+function createPeer() {
+  pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
+
+  // When remote stream arrives
+  pc.ontrack = (event) => {
+    document.getElementById("remoteVideo").srcObject = event.streams[0];
+  };
+
+  // ICE candidate exchange
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.send(JSON.stringify({
+        type: "candidate",
+        candidate: event.candidate
+      }));
+    }
+  };
+
+  // Connection state logging
+  pc.onconnectionstatechange = () => {
+    console.log("Connection state:", pc.connectionState);
+  };
+
+  // Create chat data channel
+  dataChannel = pc.createDataChannel("chat");
+
+  dataChannel.onmessage = (event) => {
+    document.getElementById("chatBox").value +=
+      "Peer: " + event.data + "\n";
+  };
+
+  pc.ondatachannel = (event) => {
+    event.channel.onmessage = (e) => {
+      document.getElementById("chatBox").value +=
+        "Peer: " + e.data + "\n";
+    };
+  };
+}
+
+async function startCall() {
+  localStream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: true
+  });
+
+  document.getElementById("localVideo").srcObject = localStream;
+
+  createPeer();
+
+  localStream.getTracks().forEach(track => {
+    pc.addTrack(track, localStream);
+  });
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  socket.send(JSON.stringify({ type: "offer", offer }));
+}
+
+socket.onmessage = async (msg) => {
+  const data = JSON.parse(msg.data);
+
+  if (!pc) createPeer();
+
+  if (data.type === "offer") {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true
+    });
+
+    document.getElementById("localVideo").srcObject = localStream;
+
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+    });
+
+    await pc.setRemoteDescription(data.offer);
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    socket.send(JSON.stringify({ type: "answer", answer }));
+  }
+
+  if (data.type === "answer") {
+    await pc.setRemoteDescription(data.answer);
+  }
+
+  if (data.type === "candidate") {
+    await pc.addIceCandidate(data.candidate);
+  }
+};
+
+// Media controls
+function toggleMute() {
+  const audioTrack = localStream.getAudioTracks()[0];
+  audioTrack.enabled = !audioTrack.enabled;
+}
+
+function toggleCamera() {
+  const videoTrack = localStream.getVideoTracks()[0];
+  videoTrack.enabled = !videoTrack.enabled;
+}
+
+function endCall() {
+  if (pc) pc.close();
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+  }
+  document.getElementById("localVideo").srcObject = null;
+  document.getElementById("remoteVideo").srcObject = null;
+  document.getElementById("chatBox").value += "Call ended\n";
+}
+
+function sendMessage() {
+  const input = document.getElementById("chatInput");
+  if (dataChannel && input.value) {
+    dataChannel.send(input.value);
+    document.getElementById("chatBox").value +=
+      "You: " + input.value + "\n";
+    input.value = "";
+  }
+}
+</script>
+
+</body>
+</html>
