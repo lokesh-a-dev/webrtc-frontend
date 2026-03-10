@@ -128,14 +128,19 @@ function createPeer() {
     iceTransportPolicy: "all",
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
+      // {
+      //   urls: [
+      //     "turn:openrelay.metered.ca:80?transport=udp",
+      //     "turn:openrelay.metered.ca:443?transport=tcp"
+      //   ],
+      //   username: "openrelayproject",
+      //   credential: "openrelayproject"
+      // }
       {
-        urls: [
-          "turn:openrelay.metered.ca:80?transport=udp",
-          "turn:openrelay.metered.ca:443?transport=tcp"
-        ],
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      }
+      urls: "turn:3.27.72.116:3478",
+      username: "lokesh",
+      credential: "lokesh"
+    }
     ]
   });
 
